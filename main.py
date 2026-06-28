@@ -1,7 +1,7 @@
 import os
 import glob
 import time
-import requests
+import subprocess
 from PIL import Image
 from pyrogram import Client, filters
 from pyrogram.types import Message
@@ -13,7 +13,7 @@ flask_app = Flask(__name__)
 
 @flask_app.route('/')
 def home():
-    return "Bot is running 24/7 on Render via Docker with Native FFmpeg!"
+    return "Bot is running 24/7 via Powerful Video Frame Extractor!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
@@ -46,20 +46,29 @@ async def upload_progress(current, total, status_msg, last_update_time):
     except:
         pass
 
-def process_strict_thumbnail_meta(raw_path, out_path):
+# FFmpeg utility to strictly extract 1st second scene from downloaded video
+def extract_frame_via_ffmpeg(video_path, out_thumb_path):
     try:
-        img = Image.open(raw_path)
-        img = img.convert('RGB')
-        img.thumbnail((320, 320))
-        img.save(out_path, 'JPEG', quality=85)
-        final_img = Image.open(out_path)
-        return final_img.width, final_img.height
-    except:
-        return None, None
+        command = [
+            'ffmpeg', '-y', '-i', video_path,
+            '-ss', '00:00:01.000', '-vframes', '1',
+            out_thumb_path
+        ]
+        subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        
+        if os.path.exists(out_thumb_path):
+            img = Image.open(out_thumb_path)
+            img = img.convert('RGB')
+            img.thumbnail((320, 320))
+            img.save(out_thumb_path, 'JPEG', quality=85)
+            return img.width, img.height
+    except Exception as e:
+        print(f"FFmpeg Video Extract Error: {e}")
+    return None, None
 
 @app.on_message(filters.command("start"))
 async def start_cmd(client: Client, message: Message):
-    await message.reply_text("👋 **Docker Environment Active! Native FFmpeg integration complete. Ab koi bhi link test kijiye!**")
+    await message.reply_text("👋 **Ultimate Video Extractor Active! Ab har video ka thumbnail 100% aayega. Link bhejiye!**")
 
 @app.on_message(filters.text & ~filters.command(["start"]))
 async def handle_reddit_link(client: Client, message: Message):
@@ -67,10 +76,9 @@ async def handle_reddit_link(client: Client, message: Message):
     if "reddit.com" not in url and "redd.it" not in url:
         return
 
-    status_msg = await message.reply_text("📥 **Processing link via Docker Container...**")
+    status_msg = await message.reply_text("📥 **Downloading Video from Reddit...**")
     
     unique_id = int(time.time())
-    raw_thumb_path = f"downloads/raw_{unique_id}.webp"
     final_thumb_path = f"downloads/thumb_{unique_id}.jpg"
     outtmpl = "downloads/%(id)s.%(ext)s"
     
@@ -93,17 +101,16 @@ async def handle_reddit_link(client: Client, message: Message):
                 except:
                     pass
 
-    # Docker me ffmpeg directly binary path par mil jata hai
     ydl_opts = {
         'outtmpl': outtmpl,
         'quiet': True,
         'no_warnings': True,
-        'writethumbnail': True, # Ab yeh 100% work karega native ffmpeg ke sath
-        'format': 'bestvideo+bestaudio/best', 
+        'format': 'bestvideo+bestaudio/best', # High quality merge via FFmpeg
         'progress_hooks': [yt_dlp_hook],
     }
 
     try:
+        # Download Video
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             filename = ydl.prepare_filename(info)
@@ -111,24 +118,21 @@ async def handle_reddit_link(client: Client, message: Message):
             
             all_files = glob.glob(base_name + ".*")
             actual_filename = None
-            raw_thumbnail = None
-            
             for f in all_files:
-                if f.endswith(('.jpg', '.jpeg', '.webp', '.png')):
-                    raw_thumbnail = f
-                elif f.endswith(('.mp4', '.mkv', '.mov', '.webm')):
+                if f.endswith(('.mp4', '.mkv', '.mov', '.webm')):
                     actual_filename = f
                     
             duration = int(info.get('duration', 0))
 
-        await status_msg.edit_text(
-            "📤 **Processing Native Thumbnail & Uploading...**"
-        )
+        await status_msg.edit_text("⚙️ **Extracting Thumbnail from Video Frame...**")
         
+        # Extract thumbnail directly from video file using native FFmpeg
         t_width, t_height = None, None
-        if raw_thumbnail and os.path.exists(raw_thumbnail):
-            t_width, t_height = process_strict_thumbnail_meta(raw_thumbnail, final_thumb_path)
+        if actual_filename and os.path.exists(actual_filename):
+            t_width, t_height = extract_frame_via_ffmpeg(actual_filename, final_thumb_path)
 
+        await status_msg.edit_text("📤 **Uploading with extracted thumbnail...**")
+        
         if actual_filename:
             last_ul_update = [0]
             await message.reply_video(
